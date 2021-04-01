@@ -126,6 +126,7 @@ static bool flag_coverage;
 static bool flag_sandbox_none;
 static bool flag_sandbox_setuid;
 static bool flag_sandbox_namespace;
+static bool flag_sandbox_android_untrusted_app;
 static bool flag_sandbox_android;
 static bool flag_extra_coverage;
 static bool flag_net_injection;
@@ -365,6 +366,13 @@ static void setup_features(char** enable, int n);
 
 int main(int argc, char** argv)
 {
+#if (SYZ_HAVE_SANDBOX_ANDROID || SYZ_HAVE_SANDBOX_ANDROID_UNTRUSTED_APP)
+  uid_t android_sandbox_uid = 10999;
+  gid_t android_sandbox_gid = 10999;
+  char android_sandbox_context[256];
+  char android_sandbox_label[256];
+  char android_sandbox_seccomp_path[1024];
+#endif
 	if (argc == 2 && strcmp(argv[1], "version") == 0) {
 		puts(GOOS " " GOARCH " " SYZ_REVISION " " GIT_REVISION);
 		return 0;
@@ -453,12 +461,53 @@ int main(int argc, char** argv)
 	else if (flag_sandbox_namespace)
 		status = do_sandbox_namespace();
 #endif
-#if SYZ_HAVE_SANDBOX_ANDROID
-	else if (flag_sandbox_android)
-		status = do_sandbox_android();
+#if (SYZ_HAVE_SANDBOX_ANDROID || SYZ_HAVE_SANDBOX_ANDROID_UNTRUSTED_APP)
+	else if (flag_sandbox_android_untrusted_app)
+	  status = do_sandbox_android_untrusted_app();
+	else if (flag_sandbox_android) {
+	  // need to get options out of the command list:
+	  fprintf(stderr, "EXECUTOR COMMAND LINE: ");
+	  for (int i = 0; i < argc; i++) {
+	    if (argv[i][0] == '-') {
+	      switch(argv[i][1]) {
+	      case 'u':
+		// cut off first 3 characters, then turn rest into uid_t
+		android_sandbox_uid = atoi(((char *)argv[i]+3));
+		fprintf(stderr, "for -u: %d\n", android_sandbox_uid);
+		break;
+	      case 'g':
+		// cut off first 3 characters, then turn rest into gid_t
+		android_sandbox_gid = atoi(((char *)argv[i]+3));
+		fprintf(stderr, "for -g: %d\n", android_sandbox_gid);
+		break;
+	      case 'l':
+		// cut off first 3 characters, then turn rest into label
+		strcpy(android_sandbox_label, ((char *)argv[i]+3));
+		fprintf(stderr, "for -l: %s\n", android_sandbox_label);
+		break;
+	      case 'x':
+		// cut off first 3 characters, then turn rest into context
+		strcpy(android_sandbox_context, ((char *)argv[i]+3));
+		fprintf(stderr, "for -x: %s\n", android_sandbox_context);
+		break;
+	      case 's':
+		// cut off first 3 characters, then turn rest into seccomp path
+		strcpy(android_sandbox_seccomp_path, ((char *)argv[i]+3));
+		fprintf(stderr, "for -s: %s\n", android_sandbox_seccomp_path);
+		break;
+	      default:
+		break;
+	      }
+	    }
+	  }
+	// get the flags out of args, then kick off the thing
+
+	  status = do_sandbox_android(android_sandbox_uid, android_sandbox_gid, android_sandbox_label, android_sandbox_context, android_sandbox_seccomp_path);
+	  free(android_sandbox_seccomp_path);
+	}
 #endif
 	else
-		fail("unknown sandbox type");
+	  fail("unknown sandbox type");
 
 #if SYZ_EXECUTOR_USES_FORK_SERVER
 	fprintf(stderr, "loop exited with status %d\n", status);
@@ -504,18 +553,20 @@ void parse_env_flags(uint64 flags)
 	else if (flags & (1 << 3))
 		flag_sandbox_namespace = true;
 	else if (flags & (1 << 4))
-		flag_sandbox_android = true;
+		flag_sandbox_android_untrusted_app = true;
+	else if (flags & (1 << 5))
+	        flag_sandbox_android = true;
 	else
 		flag_sandbox_none = true;
-	flag_extra_coverage = flags & (1 << 5);
-	flag_net_injection = flags & (1 << 6);
-	flag_net_devices = flags & (1 << 7);
-	flag_net_reset = flags & (1 << 8);
-	flag_cgroups = flags & (1 << 9);
-	flag_close_fds = flags & (1 << 10);
-	flag_devlink_pci = flags & (1 << 11);
-	flag_vhci_injection = flags & (1 << 12);
-	flag_wifi = flags & (1 << 13);
+	flag_extra_coverage = flags & (1 << 6);
+	flag_net_injection = flags & (1 << 7);
+	flag_net_devices = flags & (1 << 8);
+	flag_net_reset = flags & (1 << 9);
+	flag_cgroups = flags & (1 << 10);
+	flag_close_fds = flags & (1 << 11);
+	flag_devlink_pci = flags & (1 << 12);
+	flag_vhci_injection = flags & (1 << 13);
+	flag_wifi = flags & (1 << 14);
 }
 
 #if SYZ_EXECUTOR_USES_FORK_SERVER

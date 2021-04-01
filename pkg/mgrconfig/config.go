@@ -101,7 +101,8 @@ type Config struct {
 	// "namespace": create a new namespace for fuzzer using CLONE_NEWNS/CLONE_NEWNET/CLONE_NEWPID/etc,
 	//	requires building kernel with CONFIG_NAMESPACES, CONFIG_UTS_NS, CONFIG_USER_NS,
 	//	CONFIG_PID_NS and CONFIG_NET_NS. Supported only for some OSes.
-	// "android": (Android) Emulate permissions of an untrusted app.
+	// "android_untrusted_app": (Android) Emulate permissions of an untrusted app.
+	// "android": (Android) Emulate permissions of the specified domain.
 	Sandbox string `json:"sandbox"`
 
 	// Use KCOV coverage (default: true).
@@ -138,6 +139,9 @@ type Config struct {
 	// Parameters for concrete types are in Config type in vm/TYPE/TYPE.go, e.g. vm/qemu/qemu.go.
 	VM json.RawMessage `json:"vm"`
 
+	// Android sandbox params
+	AndroidSandbox json.RawMessage `json:"android_sandbox"`
+	
 	// Implementation details beyond this point. Filled after parsing.
 	Derived `json:"-"`
 }

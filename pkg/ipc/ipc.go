@@ -32,7 +32,8 @@ const (
 	FlagSignal                                   // collect feedback signals (coverage)
 	FlagSandboxSetuid                            // impersonate nobody user
 	FlagSandboxNamespace                         // use namespaces for sandboxing
-	FlagSandboxAndroid                           // use Android sandboxing for the untrusted_app domain
+	FlagSandboxAndroidUntrustedApp               // use Android sandboxing for the untrusted_app domain
+	FlagSandboxAndroid                           // use Android sandboxing for an arbitrary domain
 	FlagExtraCover                               // collect extra coverage
 	FlagEnableTun                                // setup and use /dev/tun for packet injection
 	FlagEnableNetDev                             // setup more network devices for testing
@@ -73,6 +74,13 @@ type Config struct {
 
 	// Flags are configuation flags, defined above.
 	Flags EnvFlags
+
+	// Android sandbox options
+	DesiredUid     string
+	DesiredGid     string
+	DesiredLabel   string
+	DesiredContext string
+	SeccompPath    string
 
 	Timeouts targets.Timeouts
 }
@@ -137,10 +145,12 @@ func SandboxToFlags(sandbox string) (EnvFlags, error) {
 		return FlagSandboxSetuid, nil
 	case "namespace":
 		return FlagSandboxNamespace, nil
+	case "android_untrusted_app":
+		return FlagSandboxAndroidUntrustedApp, nil
 	case "android":
 		return FlagSandboxAndroid, nil
 	default:
-		return 0, fmt.Errorf("sandbox must contain one of none/setuid/namespace/android")
+		return 0, fmt.Errorf("sandbox must contain one of none/setuid/namespace/android/android_untrusted_app")
 	}
 }
 
@@ -149,6 +159,8 @@ func FlagsToSandbox(flags EnvFlags) string {
 		return "setuid"
 	} else if flags&FlagSandboxNamespace != 0 {
 		return "namespace"
+	} else if flags&FlagSandboxAndroidUntrustedApp != 0 {
+		return "android_untrusted_app"
 	} else if flags&FlagSandboxAndroid != 0 {
 		return "android"
 	}
@@ -598,6 +610,14 @@ func makeCommand(pid int, bin []string, config *Config, inFile, outFile *os.File
 	c.readDone = make(chan []byte, 1)
 	c.exited = make(chan struct{})
 
+	if config.Flags&(FlagSandboxAndroid) != 0 {
+		bin = append(bin, "-u "+config.DesiredUid)
+		bin = append(bin, "-g "+config.DesiredGid)
+		bin = append(bin, "-l "+config.DesiredLabel)
+		bin = append(bin, "-x "+config.DesiredContext)
+		bin = append(bin, "-s "+config.SeccompPath)
+	}
+	
 	cmd := osutil.Command(bin[0], bin[1:]...)
 	if inFile != nil && outFile != nil {
 		cmd.ExtraFiles = []*os.File{inFile, outFile}

@@ -3938,9 +3938,6 @@ const char* const SELINUX_LABEL_APP_DATA_FILE = "u:object_r:app_data_file:s0:c51
 const char* const SELINUX_CONTEXT_FILE = "/proc/thread-self/attr/current";
 const char* const SELINUX_XATTR_NAME = "security.selinux";
 
-const gid_t UNTRUSTED_APP_GROUPS[] = {UNTRUSTED_APP_GID, AID_NET_BT_ADMIN, AID_NET_BT, AID_INET, AID_EVERYBODY};
-const size_t UNTRUSTED_APP_NUM_GROUPS = sizeof(UNTRUSTED_APP_GROUPS) / sizeof(UNTRUSTED_APP_GROUPS[0]);
-
 // Similar to libselinux getcon(3), but:
 // - No library dependency
 // - No dynamic memory allocation
@@ -4028,59 +4025,68 @@ static void syz_setfilecon(const char* path, const char* context)
 }
 
 #define SYZ_HAVE_SANDBOX_ANDROID 1
-static int do_sandbox_android(void)
+#define SYZ_HAVE_SANDBOX_ANDROID_UNTRUSTED_APP 1
+static int do_sandbox_android(uid_t desired_uid, gid_t desired_gid, const char *desired_label, const char *desired_context, const char *seccomp_path)
 {
-	setup_common();
-#if SYZ_EXECUTOR || SYZ_VHCI_INJECTION
-	initialize_vhci();
-#endif
-	sandbox_common();
-	drop_caps();
+  const gid_t app_groups[] = {desired_gid, AID_NET_BT_ADMIN, AID_NET_BT, AID_INET, AID_EVERYBODY};
+  const size_t app_num_groups = sizeof(app_groups) / sizeof(app_groups[0]);
+
+  setup_common();
+  sandbox_common();
+  drop_caps();
 
 #if SYZ_EXECUTOR || SYZ_NET_DEVICES
-	initialize_netdevices_init();
+  initialize_netdevices_init();
 #endif
 #if SYZ_EXECUTOR || SYZ_DEVLINK_PCI
-	initialize_devlink_pci();
+  initialize_devlink_pci();
 #endif
 #if SYZ_EXECUTOR || SYZ_NET_INJECTION
-	initialize_tun();
+  initialize_tun();
 #endif
 #if SYZ_EXECUTOR || SYZ_NET_DEVICES
-	// TODO(dvyukov): unshare net namespace.
-	// Currently all netdev setup happens in init namespace.
-	// It will lead to some mess, all test process will use the same devices
-	// and try to reinitialize them as other test processes use them.
-	initialize_netdevices();
+  // TODO(dvyukov): unshare net namespace.
+  // Currently all netdev setup happens in init namespace.
+  // It will lead to some mess, all test process will use the same devices
+  // and try to reinitialize them as other test processes use them.
+  initialize_netdevices();
 #endif
 
-	if (chown(".", UNTRUSTED_APP_UID, UNTRUSTED_APP_UID) != 0)
-		fail("chmod failed");
+  if (chown(".", desired_uid, desired_uid) != 0)
+    fail("chmod failed");
 
-	if (setgroups(UNTRUSTED_APP_NUM_GROUPS, UNTRUSTED_APP_GROUPS) != 0)
-		fail("setgroups failed");
+  if (setgroups(app_num_groups, app_groups) != 0)
+    fail("setgroups failed");
 
-	if (setresgid(UNTRUSTED_APP_GID, UNTRUSTED_APP_GID, UNTRUSTED_APP_GID) != 0)
-		fail("setresgid failed");
+  if (setresgid(desired_gid, desired_gid, desired_gid) != 0)
+    fail("setresgid failed");
 
 #if GOARCH_arm || GOARCH_arm64 || GOARCH_386 || GOARCH_amd64
-	// Will fail() if anything fails.
-	// Must be called when the new process still has CAP_SYS_ADMIN, in this case,
-	// before changing uid from 0, which clears capabilities.
-	set_app_seccomp_filter();
+  // Will fail() if anything fails.
+  // Must be called with the new process still has CAP_SYS_ADMIN, in this case,
+  // before changing uid from 0, which clears capabilities.
+  if (seccomp_path == NULL)
+    set_app_seccomp_filter();
+  else
+    set_specified_app_seccomp_filter(seccomp_path);
 #endif
 
-	if (setresuid(UNTRUSTED_APP_UID, UNTRUSTED_APP_UID, UNTRUSTED_APP_UID) != 0)
-		fail("setresuid failed");
+  if (setresuid(desired_uid, desired_uid, desired_uid) != 0)
+    fail("setresuid failed");
 
-	// setresuid and setresgid clear the parent-death signal.
-	prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0);
+  // setresuid and setresgid clear the parent-death signal.
+  prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0);
 
-	syz_setfilecon(".", SELINUX_LABEL_APP_DATA_FILE);
-	syz_setcon(SELINUX_CONTEXT_UNTRUSTED_APP);
+  syz_setfilecon(".", desired_label);
+  syz_setcon(desired_context);
 
-	loop();
-	doexit(1);
+  loop();
+  doexit(1);
+}
+
+static int do_sandbox_android_untrusted_app(void)
+{
+  return do_sandbox_android(UNTRUSTED_APP_UID, UNTRUSTED_APP_GID, SELINUX_LABEL_APP_DATA_FILE, SELINUX_CONTEXT_UNTRUSTED_APP, NULL);
 }
 #endif
 

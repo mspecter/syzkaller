@@ -44,6 +44,13 @@ var (
 	flagBench  = flag.String("bench", "", "write execution statistics into this file periodically")
 )
 
+type AndroidSandboxConfig struct {
+	Uid string `json:"uid"`
+	Gid string `json:"gid"`
+	Label string `json:"label"`
+	Context string `json:"context"`
+	SeccompPath string `json:"seccomp_path"`
+}
 type Manager struct {
 	cfg            *mgrconfig.Config
 	vmPool         *vm.Pool

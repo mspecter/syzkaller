@@ -102,3 +102,35 @@ static void set_app_seccomp_filter()
 	// Will fail() if anything fails.
 	install_filter(&f);
 }
+
+static void set_specified_app_seccomp_filter(const char *seccomp_filter_path)
+{
+  int scfd = open(seccomp_filter_path, O_RDONLY);
+  if (scfd == -1)
+    fail("open of specified filter failed");
+  struct stat stats;
+  stat(seccomp_filter_path, &stats);
+  size_t app_filter_size = stats.st_size;
+  char *app_filter = (char *)mmap(NULL, app_filter_size, PROT_READ | PROT_WRITE, MAP_PRIVATE, scfd, 0);
+  if (!app_filter)
+    fail("mmap for app filter failed");
+  ssize_t s = read(scfd, app_filter, app_filter_size);
+  if (s == 0)
+    fail("not able to read data from file");
+
+  const struct sock_filter* p = (const struct sock_filter*)app_filter;
+
+  Filter f;
+  f.count = 0;
+  ValidateArchitecture(&f);
+  ExamineSyscall(&f);
+
+  for (size_t i = 0; i < app_filter_size; ++i)
+    push_back(&f, p[i]);
+  Disallow(&f);
+
+  // Will fail() if anything fails.
+  install_filter(&f);
+
+  munmap(app_filter, app_filter_size);
+}
